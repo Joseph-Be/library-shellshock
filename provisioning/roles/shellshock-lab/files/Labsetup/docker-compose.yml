@@ -1,0 +1,36 @@
+version: "3"
+
+# Serveur victime du SEED Lab « Shellshock » : Apache + CGI exécuté par un bash
+# volontairement vulnérable. Reste sur le bridge Docker 10.9.0.0/24 (jamais exposé
+# sur le réseau de la sandbox). L'étudiant attaque depuis la VM, qui est la passerelle
+# du bridge (10.9.0.1).
+
+services:
+  victim:
+    build: ./image_www
+    image: seed-shellshock-victim
+    container_name: victim-10.9.0.80
+    tty: true
+    environment:
+      # Flags propres à la sandbox (écrits dans le conteneur par l'entrypoint).
+      # Non servis par Apache et illisibles depuis la VM : on ne les obtient qu'en
+      # exécutant une commande sur le serveur via la vulnérabilité.
+      SEED_FLAG_TASK3: "${SEED_FLAG_TASK3:-LocalShellTask3}"
+      SEED_FLAG_TASK4: "${SEED_FLAG_TASK4:-LocalShellTask4}"
+    networks:
+      net-10.9.0.0:
+        ipv4_address: 10.9.0.80
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep apache2 >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      #start_period: 10s
+
+networks:
+  net-10.9.0.0:
+    #name: net-10.9.0.0
+    ipam:
+      config:
+        - subnet: 10.9.0.0/24

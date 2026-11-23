@@ -1,0 +1,19 @@
+[Unit]
+Description=SEED Shellshock lab container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ shell_compose_dir }}
+ExecStartPre=/usr/bin/docker-compose -p {{ shell_compose_project }} config --quiet
+ExecStart=/usr/bin/docker-compose -p {{ shell_compose_project }} up -d --build --remove-orphans
+ExecReload=/usr/bin/docker-compose -p {{ shell_compose_project }} up -d --build --remove-orphans
+ExecStop=/usr/bin/docker-compose -p {{ shell_compose_project }} down --remove-orphans
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

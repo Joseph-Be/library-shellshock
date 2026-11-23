@@ -1,0 +1,220 @@
+---
+- name: Refuse to modify the management account
+  ansible.builtin.assert:
+    that:
+      - shell_lab_user != (ansible_user | default('root'))
+    fail_msg: "The student account must differ from the topology management account."
+
+# ------------------------------------------------------------------ pile Docker
+- name: Create the root-owned lab installation directory
+  ansible.builtin.file:
+    path: "{{ shell_compose_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Docker Compose lab sources
+  ansible.builtin.copy:
+    src: Labsetup/
+    dest: "{{ shell_compose_dir }}/"
+    owner: root
+    group: root
+    directory_mode: "0755"
+    mode: preserve
+  notify: Restart Shellshock lab
+
+- name: Configure the Compose project and per-sandbox flags
+  ansible.builtin.copy:
+    dest: "{{ shell_compose_dir }}/.env"
+    content: |
+      COMPOSE_PROJECT_NAME={{ shell_compose_project }}
+      SEED_FLAG_TASK3={{ shell_flag_task3 }}
+      SEED_FLAG_TASK4={{ shell_flag_task4 }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart Shellshock lab
+
+# ------------------------------------------------------------------ nom de la victime
+- name: Remove obsolete lab hostname mappings
+  ansible.builtin.replace:
+    path: /etc/hosts
+    regexp: '^[^\r\n]*\b{{ shell_hostname | regex_escape }}\b[^\r\n]*(?:\r?\n|$)'
+    replace: ''
+    unsafe_writes: true
+
+- name: Map the victim hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ shell_victim_ip }} {{ shell_hostname }}"
+    state: present
+    unsafe_writes: true
+
+# ------------------------------------------------------------------ guide étudiant
+- name: Create the student lab directory
+  ansible.builtin.file:
+    path: "{{ shell_lab_home }}"
+    state: directory
+    owner: "{{ shell_lab_user }}"
+    group: "{{ shell_lab_user }}"
+    mode: "0755"
+
+- name: Install the student quick-start guide
+  ansible.builtin.copy:
+    src: lab/README.txt
+    dest: "{{ shell_lab_home }}/README.txt"
+    owner: "{{ shell_lab_user }}"
+    group: "{{ shell_lab_user }}"
+    mode: "0644"
+    force: false
+
+# ------------------------------------------------------------------ service + reset
+- name: Install the Shellshock lab systemd unit
+  ansible.builtin.template:
+    src: seed-shellshock.service.j2
+    dest: /etc/systemd/system/seed-shellshock.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Shellshock lab
+
+- name: Install the bounded reset command
+  ansible.builtin.template:
+    src: reset-shellshock.j2
+    dest: "{{ shell_reset_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Apply changed runtime files before validation
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the Shellshock lab
+  ansible.builtin.systemd:
+    name: seed-shellshock.service
+    state: started
+    enabled: true
+    daemon_reload: true
+
+# ------------------------------------------------------------------ vérifications
+- name: Wait for the vulnerable CGI server to answer
+  ansible.builtin.uri:
+    url: "http://{{ shell_victim_ip }}/cgi-bin/vul.cgi"
+    headers:
+      Host: "{{ shell_hostname }}"
+    return_content: true
+  register: shell_probe
+  retries: 60
+  delay: 2
+  until:
+    - shell_probe.status is defined
+    - shell_probe.status == 200
+    - "'Hello World' in (shell_probe.content | default(''))"
+
+- name: Check the getenv CGI responds too
+  ansible.builtin.uri:
+    url: "http://{{ shell_victim_ip }}/cgi-bin/getenv.cgi"
+    headers:
+      Host: "{{ shell_hostname }}"
+    return_content: true
+  register: shell_getenv
+  failed_when:
+    - "'Environment Variables' not in (shell_getenv.content | default(''))"
+
+- name: Read the per-sandbox flags from inside the container
+  ansible.builtin.command:
+    argv: [/usr/bin/docker, exec, victim-10.9.0.80, cat, "/var/seed-flags/{{ item }}"]
+  loop: [task3, task4]
+  register: shell_flag_check
+  changed_when: false
+  no_log: true
+
+- name: Assert the container holds this sandbox's flags
+  ansible.builtin.assert:
+    that:
+      - shell_flag_check.results[0].stdout == shell_flag_task3
+      - shell_flag_check.results[1].stdout == shell_flag_task4
+    fail_msg: "The victim container does not carry the expected sandbox flags."
+    quiet: true
+  no_log: true
+
+# ------------------------------------------------------------------ durcissement du compte
+- name: Remove inherited administration rights from the student account
+  when: shell_remove_admin_rights | bool
+  block:
+    - name: Collect local groups
+      ansible.builtin.getent:
+        database: group
+
+    - name: Remove the student from privileged groups
+      ansible.builtin.command:
+        argv: [gpasswd, -d, "{{ shell_lab_user }}", "{{ item }}"]
+      loop: "{{ shell_privileged_groups }}"
+      when:
+        - item in ansible_facts.getent_group
+        - shell_lab_user in (ansible_facts.getent_group[item][2] | default('', true)).split(',')
+      register: shell_group_cleanup
+      changed_when: true
+
+    - name: Find sudoers drop-in files
+      ansible.builtin.find:
+        paths: /etc/sudoers.d
+        file_type: file
+        excludes: 90-seed-shellshock-reset
+      register: shell_sudoers_files
+
+    - name: Remove existing sudo rules naming the student
+      ansible.builtin.lineinfile:
+        path: "{{ item }}"
+        regexp: '^\s*{{ shell_lab_user }}\s'
+        state: absent
+        validate: /usr/sbin/visudo -cf %s
+      loop: "{{ ['/etc/sudoers'] + (shell_sudoers_files.files | map(attribute='path') | list) }}"
+      register: shell_sudoers_cleanup
+
+    - name: Close sessions that retain former privileged groups
+      ansible.builtin.command:
+        argv: [pkill, -KILL, -u, "{{ shell_lab_user }}"]
+      register: shell_pkill
+      changed_when: shell_pkill.rc == 0
+      failed_when: shell_pkill.rc > 1
+      when: shell_group_cleanup is changed or shell_sudoers_cleanup is changed
+      notify: Restart display manager
+
+- name: Permit only the bounded reset command through sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-seed-shellshock-reset
+    content: |
+      {{ shell_lab_user }} ALL=(root) NOPASSWD: {{ shell_reset_path }} ""
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: List final student sudo rights
+  ansible.builtin.command:
+    argv: [sudo, -l, -U, "{{ shell_lab_user }}"]
+  environment:
+    LC_ALL: C
+    LANG: C
+    LANGUAGE: C
+  register: shell_sudo_rights
+  changed_when: false
+
+- name: Read the student's effective groups
+  ansible.builtin.command:
+    argv: [id, -nG, "{{ shell_lab_user }}"]
+  register: shell_student_groups
+  changed_when: false
+
+- name: Assert the student has only the reset sudo rule and no docker access
+  ansible.builtin.assert:
+    that:
+      - shell_reset_path in shell_sudo_rights.stdout
+      - "'/usr/bin/docker' not in shell_sudo_rights.stdout"
+      - "'(ALL : ALL) ALL' not in shell_sudo_rights.stdout"
+      - "'(ALL) ALL' not in shell_sudo_rights.stdout"
+      - "'docker' not in shell_student_groups.stdout.split()"
+    fail_msg: "The student account still has broader rights (sudo or docker)."

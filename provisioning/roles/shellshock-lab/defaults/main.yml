@@ -1,0 +1,25 @@
+---
+shell_lab_user: seed
+shell_lab_home: "/home/{{ shell_lab_user }}/lab"
+shell_install_root: /opt/seed-shellshock
+shell_compose_dir: "{{ shell_install_root }}/Labsetup"
+shell_compose_project: seed-shellshock
+shell_reset_path: /usr/local/sbin/reset-shellshock
+
+shell_hostname: www.seedlab-shellshock.com
+shell_victim_ip: 10.9.0.80
+
+shell_flag_task3: LocalShellTask3
+shell_flag_task4: LocalShellTask4
+
+shell_remove_admin_rights: true
+shell_privileged_groups:
+  - sudo
+  - admin
+  - wheel
+  - adm
+  - docker
+  - lxd
+  - disk
+  - libvirt
+  - systemd-journal

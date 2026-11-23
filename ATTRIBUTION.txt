@@ -1,0 +1,42 @@
+SEED Labs educational content
+==============================
+
+This training is an adaptation of:
+
+  "SEED Labs - Shellshock Attack Lab"
+  Copyright (c) 2006 - 2016 by Wenliang Du.
+  https://seedsecuritylabs.org/Labs_20.04/Software/Shellshock/
+
+The original notice states: "This work is licensed under a Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License. If you remix,
+transform, or build upon the material, this copyright notice must be left
+intact, or reproduced in a way that is reasonable to the medium in which the
+work is being re-published."
+
+The original educational material and this adapted pedagogical content are
+therefore licensed under CC BY-NC-SA 4.0:
+
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+
+Lab container sources
+=====================
+The files under provisioning/roles/shellshock-lab/files/Labsetup/ are the
+original SEED lab container sources (docker-compose.yml, image_www/Dockerfile,
+vul.cgi, getenv.cgi, server_name.conf and the intentionally vulnerable
+bash_shellshock binary provided by SEED), used unchanged except for:
+  - a small flag-entrypoint.sh that writes the per-sandbox flags inside the
+    container and then starts Apache;
+  - environment / healthcheck additions in docker-compose.yml.
+
+The base image handsonsecurity/seed-server:apache-php is published by the SEED
+project on Docker Hub.
+
+
+Technical structure
+===================
+The repository layout, Ansible role usage and CyberRangeCZ provisioning
+conventions follow:
+  library-junior-hacker (https://github.com/cyberrangecz/library-junior-hacker)
+  Cybersecurity Laboratory, Faculty of Informatics, Masaryk University
+  Code: MIT License. Game design: CC BY 4.0.

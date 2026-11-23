@@ -1,0 +1,30 @@
+#!/bin/bash
+# Recrée le conteneur victime dans un état propre (utile après les tâches qui
+# créent/suppriment des fichiers dans /tmp). Autorisé à l'étudiant via une règle
+# sudo unique.
+set -euo pipefail
+
+if [[ "$#" -ne 0 ]]; then
+    echo "Usage: sudo reset-shellshock" >&2
+    exit 64
+fi
+
+project={{ shell_compose_project | quote }}
+compose_dir={{ shell_compose_dir | quote }}
+
+cd "$compose_dir"
+/usr/bin/docker-compose -p "$project" -f "$compose_dir/docker-compose.yml" down --remove-orphans
+/usr/bin/systemctl restart seed-shellshock.service
+
+for attempt in $(seq 1 60); do
+    if /usr/bin/curl --fail --silent --show-error \
+        -H "Host: {{ shell_hostname }}" \
+        "http://{{ shell_victim_ip }}/cgi-bin/vul.cgi" | /bin/grep -q "Hello World"; then
+        echo "Le lab Shellshock a ete reinitialise."
+        exit 0
+    fi
+    /usr/bin/sleep 2
+done
+
+echo "Le serveur victime n'est pas redevenu pret dans le delai imparti." >&2
+exit 1

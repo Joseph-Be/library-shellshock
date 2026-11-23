@@ -1,0 +1,14 @@
+# Variables APG : la plateforme génère une valeur DIFFÉRENTE par sandbox (par
+# étudiant) et la stocke comme réponse attendue des niveaux « variant_answers ».
+#
+# Les tâches 1 et 2 sont des tâches de connaissance (réponse identique pour tous).
+# Les tâches 3 et 4 prouvent la compromission du serveur : chaque sandbox a ses
+# propres flags, placés dans le conteneur et récupérables uniquement via l'attaque.
+
+flag_task3:
+  type: password
+  length: 12
+
+flag_task4:
+  type: password
+  length: 12

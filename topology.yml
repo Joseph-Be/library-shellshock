@@ -1,0 +1,42 @@
+# SEED Lab "Shellshock Attack" for CyberRangeCZ.
+#
+# Le navigateur, curl, netcat et la pile Docker tournent tous sur la VM seed.
+# Le serveur victime est un conteneur sur le bridge Docker 10.9.0.0/24 (10.9.0.80) :
+# il n'est jamais exposé sur le réseau de la sandbox. La VM est la passerelle de ce
+# bridge (10.9.0.1), ce qui permet le reverse shell de la tâche 4.
+
+name: library-shellshock
+
+hosts:
+  - name: seed
+    base_box:
+      image: seed
+      mgmt_user: ubuntu
+    flavor: m1.medium
+
+routers:
+  - name: router
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: m1.medium
+
+wan:
+  name: internet-connection
+  cidr: 100.100.100.0/24
+
+networks:
+  - name: lab-switch
+    cidr: 10.1.29.0/24
+
+net_mappings:
+  - host: seed
+    network: lab-switch
+    ip: 10.1.29.10
+
+router_mappings:
+  - router: router
+    network: lab-switch
+    ip: 10.1.29.1
+
+groups: []
